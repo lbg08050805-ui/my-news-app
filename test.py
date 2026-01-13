@@ -76,9 +76,10 @@ def fetch_triple_news(inc_list):
                             'timestamp': parse_date(time_tag.text).timestamp(),
                             'full_text': title.text.lower()
                         })
-        except: pass
+        except: 
+            pass # 네이버 에러 무시
 
-        # --- [B] 다음 뉴스 (2순위: 네이버 막혔을 때 대안) ---
+        # --- [B] 다음 뉴스 (2순위) ---
         try:
             url = f"https://search.daum.net/search?w=news&q={kw}&sort=recency"
             res = requests.get(url, headers=headers, timeout=2)
@@ -95,9 +96,10 @@ def fetch_triple_news(inc_list):
                         'timestamp': parse_date(time_tag.text).timestamp(),
                         'full_text': title.text.lower()
                     })
-        except: pass
+        except: 
+            pass # 다음 에러 무시
 
-        # --- [C] 구글 뉴스 (3순위: 최후의 보루) ---
+        # --- [C] 구글 뉴스 (3순위) ---
         try:
             url = f"https://news.google.com/rss/search?q={kw}&hl=ko&gl=KR&ceid=KR:ko"
             res = requests.get(url, headers=headers, timeout=3)
@@ -108,6 +110,18 @@ def fetch_triple_news(inc_list):
                 title = item.find('title').text
                 link = item.find('link').text
                 pubDate = item.find('pubDate').text
-                display_time = pubDate[17:22] if len(pubDate) > 20 else "Google" # 시간만 추출 (HH:MM)
+                display_time = pubDate[17:22] if len(pubDate) > 20 else "Google"
                 
-                all
+                all_news.append({
+                    'source': 'Google',
+                    'title': title,
+                    'link': link,
+                    'display_time': display_time,
+                    'timestamp': datetime.now().timestamp() - (count * 60),
+                    'full_text': title.lower()
+                })
+                count += 1
+        except: 
+            pass # 구글 에러 무시 (이 부분이 빠져서 에러가 났었습니다)
+
+    # 통합 및 정렬

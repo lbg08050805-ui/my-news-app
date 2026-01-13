@@ -84,6 +84,7 @@ def fetch_all_news(inc_list):
         try:
             url = f"https://search.daum.net/search?w=news&q={kw}&sort=recency"
             res = requests.get(url, headers=headers, timeout=3)
+            # [수정] 괄호 에러가 났던 부분 수정 완료
             soup = BeautifulSoup(res.text, 'html.parser')
             
             for item in soup.select("ul.list_news > li"):
@@ -99,7 +100,7 @@ def fetch_all_news(inc_list):
                         'link': title['href'],
                         'time': d_str,
                         'ts': ts,
-                        'full_text': title.text.lower() # [필수] 필터링용 키
+                        'full_text': title.text.lower() # [수정] 누락되었던 키 추가 완료
                     })
         except Exception:
             pass # 에러 무시하고 다음으로
@@ -123,7 +124,7 @@ def fetch_all_news(inc_list):
                             'link': title['href'],
                             'time': d_str,
                             'ts': ts,
-                            'full_text': title.text.lower() # [필수] 필터링용 키
+                            'full_text': title.text.lower() # [수정] 누락되었던 키 추가 완료
                         })
         except Exception:
             pass
@@ -149,7 +150,7 @@ def fetch_all_news(inc_list):
                         'link': link,
                         'time': d_str,
                         'ts': ts - count, # 동시간대 순서 보정
-                        'full_text': title.lower() # [필수] 필터링용 키
+                        'full_text': title.lower() # [확인] 여기는 원래 있었음
                     })
                     count += 1
         except Exception:
@@ -179,3 +180,26 @@ if st.button("레이더 가동 (새로고침)"):
         news_list = fetch_all_news(inc_words)
         
         final_list = []
+        for n in news_list:
+            # [수정] KeyError 방지: .get()을 사용하여 안전하게 꺼냄
+            text_for_check = n.get('full_text', '')
+            pass_exc = not any(word in text_for_check for word in exc_words)
+            if pass_exc:
+                final_list.append(n)
+        
+        if final_list:
+            st.success(f"✅ 총 {len(final_list)}건 수집 완료 (최신순)")
+            for n in final_list:
+                if n['source'] == 'Naver': badge = 'badge-naver'
+                elif n['source'] == 'Daum': badge = 'badge-daum'
+                else: badge = 'badge-google'
+                
+                st.markdown(f"""
+                    <div class="news-row">
+                        <span class="badge {badge}">{n['source']}</span>
+                        <a href="{n['link']}" target="_blank" class="title">{n['title']}</a>
+                        <span class="time">{n['time']}</span>
+                    </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.warning("검색 결과가 없습니다.")

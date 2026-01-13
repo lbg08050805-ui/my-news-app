@@ -1,7 +1,7 @@
 import os
 import sys
 
-# [1] 기본 경로 설정
+# [1] 기본 경로 설정 (필수)
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 import streamlit as st
@@ -84,7 +84,7 @@ def fetch_all_news(inc_list):
         try:
             url = f"https://search.daum.net/search?w=news&q={kw}&sort=recency"
             res = requests.get(url, headers=headers, timeout=3)
-            # [수정] 괄호 에러가 났던 부분 수정 완료
+            # [수정완료] 괄호 닫기 에러 수정됨
             soup = BeautifulSoup(res.text, 'html.parser')
             
             for item in soup.select("ul.list_news > li"):
@@ -100,7 +100,7 @@ def fetch_all_news(inc_list):
                         'link': title['href'],
                         'time': d_str,
                         'ts': ts,
-                        'full_text': title.text.lower() # [수정] 누락되었던 키 추가 완료
+                        'full_text': title.text.lower() # [수정완료] 누락되었던 키 추가
                     })
         except Exception:
             pass # 에러 무시하고 다음으로
@@ -118,88 +118,4 @@ def fetch_all_news(inc_list):
                     if "전" in time_tag.text: # 최신 뉴스만
                         d_str, ts = get_time_info('Naver', time_tag.text)
                         
-                        all_news.append({
-                            'source': 'Naver',
-                            'title': title.text,
-                            'link': title['href'],
-                            'time': d_str,
-                            'ts': ts,
-                            'full_text': title.text.lower() # [수정] 누락되었던 키 추가 완료
-                        })
-        except Exception:
-            pass
-
-        # [3] 구글(Google) 뉴스 - 백업용
-        try:
-            url = f"https://news.google.com/rss/search?q={kw}&hl=ko&gl=KR&ceid=KR:ko"
-            res = requests.get(url, headers=headers, timeout=4)
-            if res.status_code == 200:
-                root = ET.fromstring(res.content)
-                count = 0
-                for item in root.findall('.//item'):
-                    if count > 30: break
-                    title = item.find('title').text
-                    link = item.find('link').text
-                    pubDate = item.find('pubDate').text
-                    
-                    d_str, ts = get_time_info('Google', pubDate)
-                    
-                    all_news.append({
-                        'source': 'Google',
-                        'title': title,
-                        'link': link,
-                        'time': d_str,
-                        'ts': ts - count, # 동시간대 순서 보정
-                        'full_text': title.lower() # [확인] 여기는 원래 있었음
-                    })
-                    count += 1
-        except Exception:
-            pass
-
-    # [최종] 시간순 정렬 (최신이 위로)
-    # 중복 제거 (링크 기준)
-    unique = {n['link']: n for n in all_news}.values()
-    sorted_news = sorted(unique, key=lambda x: x['ts'], reverse=True)
-    
-    return sorted_news
-
-# ------------------------------------------------------------------------------
-# [4] 메인 실행부
-# ------------------------------------------------------------------------------
-st.sidebar.title("📡 검색 옵션")
-include_input = st.sidebar.text_input("검색어 (콤마 구분)", "삼성전자, 수주, 계약, 공시")
-exclude_input = st.sidebar.text_input("제외어 (콤마 구분)", "부고, 인사, 광고")
-
-inc_words = [w.strip() for w in include_input.split(",") if w.strip()]
-exc_words = [w.strip() for w in exclude_input.split(",") if w.strip()]
-
-st.title("📡 뉴스 통합 레이더")
-
-if st.button("레이더 가동 (새로고침)"):
-    with st.spinner('다음/네이버/구글 뉴스를 통합 수집 중...'):
-        news_list = fetch_all_news(inc_words)
-        
-        final_list = []
-        for n in news_list:
-            # [수정] KeyError 방지: .get()을 사용하여 안전하게 꺼냄
-            text_for_check = n.get('full_text', '')
-            pass_exc = not any(word in text_for_check for word in exc_words)
-            if pass_exc:
-                final_list.append(n)
-        
-        if final_list:
-            st.success(f"✅ 총 {len(final_list)}건 수집 완료 (최신순)")
-            for n in final_list:
-                if n['source'] == 'Naver': badge = 'badge-naver'
-                elif n['source'] == 'Daum': badge = 'badge-daum'
-                else: badge = 'badge-google'
-                
-                st.markdown(f"""
-                    <div class="news-row">
-                        <span class="badge {badge}">{n['source']}</span>
-                        <a href="{n['link']}" target="_blank" class="title">{n['title']}</a>
-                        <span class="time">{n['time']}</span>
-                    </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.warning("검색 결과가 없습니다.")
+                        all_news.append

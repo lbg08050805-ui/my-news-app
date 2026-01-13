@@ -6,8 +6,8 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 import streamlit as st
 import requests
-from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
+from bs4 import BeautifulSoup
 
 # 파일명: test.py
 
@@ -40,23 +40,17 @@ def fetch_news_data(inc_list):
     search_keywords = inc_list if inc_list else ["주식"]
     
     for kw in search_keywords:
-        # ---------------------------------------------------------
-        # A. 구글 뉴스 (조건 해제: 기간 제한 삭제, 검색 범위 확대)
-        # ---------------------------------------------------------
-        # [수정1] when:2d 삭제 -> 기간 제한 없이 검색
+        # 구글 뉴스 (RSS)
         google_url = f"https://news.google.com/rss/search?q={kw}&hl=ko&gl=KR&ceid=KR:ko"
         try:
             res = requests.get(google_url, headers=headers, timeout=5)
             res.encoding = 'utf-8' 
-            
             root = ET.fromstring(res.content)
             
-            # [수정2] .//item -> 문서 내의 모든 item 태그를 무조건 찾음 (강력)
             for item in root.findall('.//item'):
                 title = item.find('title').text
                 link = item.find('link').text
                 pubDate = item.find('pubDate').text if item.find('pubDate') is not None else ""
-                
                 display_date = pubDate[5:16] if len(pubDate) > 16 else "최근"
 
                 all_news.append({
@@ -67,11 +61,9 @@ def fetch_news_data(inc_list):
                     'full_text': title.lower()
                 })
         except Exception as e:
-            print(f"구글 수집 중 에러: {e}")
+            print(f"구글 에러: {e}")
 
-        # ---------------------------------------------------------
-        # B. 네이버 뉴스 (보조)
-        # ---------------------------------------------------------
+        # 네이버 뉴스 (보조)
         naver_url = f"https://search.naver.com/search.naver?where=news&query={kw}&sort=1"
         try:
             res = requests.get(naver_url, headers=headers, timeout=3)
@@ -106,28 +98,28 @@ exc_words = [w.strip() for w in exclude_input.split(",") if w.strip()]
 # [4] 메인 화면
 st.title("📟 통합 뉴스 모니터링")
 
-if st.button("새로고침") or True: 
-    raw_pool = fetch_news_data(inc_words)
-    final_list = []
+# [수정] 이제 버튼을 눌러야만 검색합니다 (자동 실행 방지)
+if st.button("🔍 뉴스 검색 시작"):
+    with st.spinner('뉴스를 찾아오고 있습니다...'):
+        raw_pool = fetch_news_data(inc_words)
+        final_list = []
 
-    for n in raw_pool:
-        # 구글 검색 결과는 이미 키워드 관련성이 높으므로 필터 조건을 완화
-        pass_exc = not any(word in n['full_text'] for word in exc_words)
-        
-        if pass_exc:
-            final_list.append(n)
+        for n in raw_pool:
+            pass_exc = not any(word in n['full_text'] for word in exc_words)
+            if pass_exc:
+                final_list.append(n)
 
-    st.info(f"검색어: {include_input} | 수집된 기사: 총 {len(final_list)}건")
+        st.success(f"검색어: {include_input} | 발견된 기사: {len(final_list)}건")
 
-    if final_list:
-        for n in final_list:
-            badge_class = "source-naver" if n['source'] == 'Naver' else "source-google"
-            st.markdown(f"""
-                <div class="news-row">
-                    <span class="source-badge {badge_class}">{n['source']}</span>
-                    <a href="{n['link']}" target="_blank" class="title">{n['title']}</a>
-                    <span class="date">{n['time']}</span>
-                </div>
-            """, unsafe_allow_html=True)
-    else:
-        st.warning("검색 결과가 없습니다.")
+        if final_list:
+            for n in final_list:
+                badge_class = "source-naver" if n['source'] == 'Naver' else "source-google"
+                st.markdown(f"""
+                    <div class="news-row">
+                        <span class="source-badge {badge_class}">{n['source']}</span>
+                        <a href="{n['link']}" target="_blank" class="title">{n['title']}</a>
+                        <span class="date">{n['time']}</span>
+                    </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.warning("검색 결과가 없습니다.")

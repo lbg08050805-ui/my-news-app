@@ -8,6 +8,8 @@ import streamlit as st
 import requests
 import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
+from datetime import datetime, timedelta
+from email.utils import parsedate_to_datetime # 날짜 정밀 변환 도구
 
 # 파일명: test.py
 
@@ -25,7 +27,7 @@ st.markdown("""
     .source-google { background-color: #4285F4; color: white; }
     .title { color: #1a0dab; text-decoration: none; font-weight: 500; }
     .title:hover { text-decoration: underline; }
-    .date { font-size: 12px; color: #006621; margin-left: 10px; min-width: 60px; }
+    .date { font-size: 12px; color: #d93025; margin-left: auto; min-width: 110px; text-align: right; font-weight: bold;}
     </style>
     """, unsafe_allow_html=True)
 
@@ -40,7 +42,9 @@ def fetch_news_data(inc_list):
     search_keywords = inc_list if inc_list else ["주식"]
     
     for kw in search_keywords:
-        # 구글 뉴스 (RSS)
+        # ---------------------------------------------------------
+        # A. 구글 뉴스 (RSS)
+        # ---------------------------------------------------------
         google_url = f"https://news.google.com/rss/search?q={kw}&hl=ko&gl=KR&ceid=KR:ko"
         try:
             res = requests.get(google_url, headers=headers, timeout=5)
@@ -50,20 +54,46 @@ def fetch_news_data(inc_list):
             for item in root.findall('.//item'):
                 title = item.find('title').text
                 link = item.find('link').text
-                pubDate = item.find('pubDate').text if item.find('pubDate') is not None else ""
-                display_date = pubDate[5:16] if len(pubDate) > 16 else "최근"
+                pubDate_str = item.find('pubDate').text
+                
+                # [핵심] 날짜/시간 정밀 계산 및 한국 시간 변환
+                try:
+                    # 1. RSS 날짜 형식 파싱
+                    dt_obj = parsedate_to_datetime(pubDate_str)
+                    # 2. 한국 시간(KST)으로 변환 (+9시간)
+                    # 이미 타임존 정보가 있다면 astimezone으로 변환, 없다면 수동 계산
+                    if dt_obj.tzinfo:
+                        # 타임존 정보가 있으면 9시간 더하는 방식이 아니라 그냥 시차 적용
+                        # 하지만 구글은 보통 GMT로 줌. 단순히 보기 좋게 포맷팅
+                        kst_time = dt_obj.astimezone() # 서버 로컬(UTC) -> KST 변환은 환경에 따라 다름
+                        # 확실한 방법: 타임스탬프 + 9시간
+                        final_dt = dt_obj + timedelta(hours=9)
+                    else:
+                        final_dt = dt_obj
+                    
+                    # 3. 화면 표시용 문자열 (년-월-일 시:분)
+                    display_time = final_dt.strftime("%Y-%m-%d %H:%M")
+                    # 4. 정렬용 숫자 (timestamp)
+                    sort_key = final_dt.timestamp()
+                    
+                except:
+                    display_time = "날짜정보없음"
+                    sort_key = 0
 
                 all_news.append({
                     'source': 'Google',
                     'title': title,
                     'link': link,
-                    'time': display_date,
+                    'time': display_time,
+                    'sort_key': sort_key, # 정렬을 위한 비밀 키
                     'full_text': title.lower()
                 })
         except Exception as e:
             print(f"구글 에러: {e}")
 
-        # 네이버 뉴스 (보조)
+        # ---------------------------------------------------------
+        # B. 네이버 뉴스 (보조)
+        # ---------------------------------------------------------
         naver_url = f"https://search.naver.com/search.naver?where=news&query={kw}&sort=1"
         try:
             res = requests.get(naver_url, headers=headers, timeout=3)
@@ -73,19 +103,31 @@ def fetch_news_data(inc_list):
             if news_items: 
                 for item in news_items:
                     t_tag = item.select_one("a.news_tit")
+                    tm_tag = item.select_one("span.info") # "1시간 전" 같은 텍스트
                     if t_tag:
+                        # 네이버는 정확한 시간이 아니라 '1시간 전' 형식이므로
+                        # 정렬 순서를 위해 현재시간(가장 최신)으로 간주
+                        current_ts = datetime.now().timestamp()
+                        
                         all_news.append({
                             'source': 'Naver',
                             'title': t_tag.text,
                             'link': t_tag['href'],
-                            'time': '네이버',
+                            'time': tm_tag.text if tm_tag else "최근",
+                            'sort_key': current_ts, # 네이버 나오면 일단 최신으로 침
                             'full_text': t_tag.text.lower()
                         })
         except:
             pass
     
-    unique = {n['link']: n for n in all_news}.values()
-    return list(unique)
+    # 중복 제거 (링크 기준)
+    unique_dict = {n['link']: n for n in all_news}
+    unique_list = list(unique_dict.values())
+    
+    # [최종 정렬] sort_key(시간 숫자) 기준으로 내림차순(최신순) 정렬
+    unique_list.sort(key=lambda x: x['sort_key'], reverse=True)
+    
+    return unique_list
 
 # [3] 사이드바 설정
 st.sidebar.title("🔍 검색 옵션")
@@ -98,9 +140,8 @@ exc_words = [w.strip() for w in exclude_input.split(",") if w.strip()]
 # [4] 메인 화면
 st.title("📟 통합 뉴스 모니터링")
 
-# [수정] 이제 버튼을 눌러야만 검색합니다 (자동 실행 방지)
 if st.button("🔍 뉴스 검색 시작"):
-    with st.spinner('뉴스를 찾아오고 있습니다...'):
+    with st.spinner('최신순으로 정렬 중입니다...'):
         raw_pool = fetch_news_data(inc_words)
         final_list = []
 

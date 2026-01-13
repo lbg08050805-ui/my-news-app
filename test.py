@@ -10,12 +10,13 @@ from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 import re
-from email.utils import parsedate_to_datetime # 구글 날짜 해석용 도구
+from email.utils import parsedate_to_datetime
 
 # [1] 통합 시간 계산기 (결과: "2026-01-13 14:30", 정렬용 숫자)
 def get_time_info(source, text):
     now = datetime.now()
-    display_str = now.strftime("%Y-%m-%d %H:%M") # 기본값
+    # 기본값 설정
+    display_str = now.strftime("%Y-%m-%d %H:%M")
     timestamp = now.timestamp()
     
     try:
@@ -33,12 +34,13 @@ def get_time_info(source, text):
                 days = int(re.search(r'(\d+)', text).group(1))
                 calc_time = now - timedelta(days=days)
             elif "." in text and len(text) >= 10: # 2026.01.13. 형식
-                # 날짜만 있는 경우 09:00로 가정
-                calc_time = datetime.strptime(text[:10], "%Y.%m.%d")
+                # 날짜만 있는 경우 그날 아침 09:00로 가정 (정렬 위해)
+                calc_time = datetime.strptime(text[:10], "%Y.%m.%d").replace(hour=9, minute=0)
             else:
                 calc_time = now
             
-            display_str = calc_time.strftime("%m-%d %H:%M") # 월-일 시:분
+            # [수정] 상무님 요청 포맷: 연-월-일 시:분
+            display_str = calc_time.strftime("%Y-%m-%d %H:%M")
             timestamp = calc_time.timestamp()
 
         # [B] 구글: "Tue, 13 Jan 2026 05:00:00 GMT" 형식
@@ -48,11 +50,12 @@ def get_time_info(source, text):
             # 한국 시간으로 변환 (+9시간)
             kst_dt = dt + timedelta(hours=9)
             
-            display_str = kst_dt.strftime("%m-%d %H:%M")
+            # [수정] 상무님 요청 포맷: 연-월-일 시:분
+            display_str = kst_dt.strftime("%Y-%m-%d %H:%M")
             timestamp = kst_dt.timestamp()
 
     except Exception:
-        pass # 에러나면 현재시간으로 유지
+        pass # 에러나면 현재시간 유지
 
     return display_str, timestamp
 
@@ -70,8 +73,8 @@ st.markdown("""
     .badge-google { background-color: #4285F4; color: white; }
     .title { color: #333; text-decoration: none; font-weight: 500; flex-grow: 1; }
     .title:hover { text-decoration: underline; color: #007bff; }
-    /* 날짜 나오는 부분 디자인 (폭을 넓힘) */
-    .time { font-size: 12px; color: #666; font-family: 'Consolas', monospace; min-width: 90px; text-align: right; letter-spacing: -0.5px;}
+    /* 날짜 디자인: 폭을 110px로 늘려서 연월일 시분 다 보이게 함 */
+    .time { font-size: 12px; color: #666; font-family: 'Consolas', monospace; min-width: 110px; text-align: right; letter-spacing: -0.5px;}
     </style>
     """, unsafe_allow_html=True)
 
@@ -111,7 +114,8 @@ def fetch_final_news(inc_list):
                     
                     d_str, ts = get_time_info('Google', pubDate)
                     
-                    all_news.append({'source':'Google', 'title':title, 'link':link, 'time':d_str, 'ts':ts, 'full':title})
+                    # 구글은 순서대로 오므로, 같은 시간대면 순서 유지위해 미세조정
+                    all_news.append({'source':'Google', 'title':title, 'link':link, 'time':d_str, 'ts':ts - count, 'full':title})
                     count += 1
         except: pass
 
@@ -119,4 +123,55 @@ def fetch_final_news(inc_list):
         try:
             url = f"https://search.naver.com/search.naver?where=news&query={kw}&sort=1"
             res = requests.get(url, headers=headers, timeout=2)
-            soup = BeautifulSoup(
+            soup = BeautifulSoup(res.text, 'html.parser')
+            for item in soup.select("div.news_wrap"):
+                title = item.select_one("a.news_tit")
+                time_tag = item.select_one("span.info")
+                if title and time_tag:
+                    if "전" in time_tag.text:
+                        d_str, ts = get_time_info('Naver', time_tag.text)
+                        all_news.append({'source':'Naver', 'title':title.text, 'link':title['href'], 'time':d_str, 'ts':ts, 'full':title.text})
+        except: pass
+
+    # [최종 정렬] ts(시간숫자) 기준 내림차순 (최신순)
+    unique = {n['link']: n for n in all_news}.values()
+    sorted_news = sorted(unique, key=lambda x: x['ts'], reverse=True)
+    
+    return sorted_news
+
+# [4] 메인 화면
+st.sidebar.title("📡 뉴스 필터")
+include_input = st.sidebar.text_input("검색어", "삼성전자, 수주, 계약, 공시")
+exclude_input = st.sidebar.text_input("제외어", "부고, 인사, 광고")
+
+inc_words = [w.strip() for w in include_input.split(",") if w.strip()]
+exc_words = [w.strip() for w in exclude_input.split(",") if w.strip()]
+
+st.title("📡 실시간 뉴스 레이더 (시간순)")
+
+if st.button("레이더 가동 (새로고침)"):
+    with st.spinner('최신순 정렬 중...'):
+        news_list = fetch_final_news(inc_words)
+        
+        final_list = []
+        for n in news_list:
+            pass_exc = not any(word in n['full_text'] for word in exc_words)
+            if pass_exc:
+                final_list.append(n)
+        
+        if final_list:
+            st.success(f"✅ 총 {len(final_list)}건 발견 (최신순 정렬)")
+            for n in final_list:
+                if n['source'] == 'Naver': badge = 'badge-naver'
+                elif n['source'] == 'Daum': badge = 'badge-daum'
+                else: badge = 'badge-google'
+                
+                st.markdown(f"""
+                    <div class="news-row">
+                        <span class="badge {badge}">{n['source']}</span>
+                        <a href="{n['link']}" target="_blank" class="title">{n['title']}</a>
+                        <span class="time">{n['time']}</span>
+                    </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.warning("검색 결과가 없습니다.")

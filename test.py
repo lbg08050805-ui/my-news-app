@@ -27,36 +27,43 @@ st.markdown("""
 # [2] 각각 불러와서 합치는 엔진 (수집 단계)
 def fetch_news_data(inc_list):
     all_news = []
-    headers = {"User-Agent": "Mozilla/5.0"}
+    
+    # [수정된 부분] 봇 차단 방지용 강력한 헤더 (네이버/구글 공용)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
     
     # 컴마로 분리된 단어들을 하나씩 꺼내어 '각각' 호출합니다.
-    # 예: ['삼성전자', '수주'] -> 삼성전자 검색 한 번, 수주 검색 한 번
     search_keywords = inc_list if inc_list else ["주식"]
     
     for kw in search_keywords:
         # A. 네이버 뉴스 수집
         naver_url = f"https://search.naver.com/search.naver?where=news&query={kw}&sort=1"
         try:
+            # 헤더 포함해서 요청
             res = requests.get(naver_url, headers=headers, timeout=5)
             soup = BeautifulSoup(res.text, 'html.parser')
             for item in soup.select(".news_wrap"):
                 t_tag = item.select_one(".news_tit")
                 tm_tag = item.select_one(".info_group span.info")
                 if t_tag:
-                    # 각각 불러온 데이터를 'all_news'라는 하나의 큰 바구니에 합칩니다.
                     all_news.append({
                         'title': t_tag.text,
                         'link': t_tag['href'],
                         'time': tm_tag.text if tm_tag else "최근",
                         'full_text': t_tag.text.lower()
                     })
-        except: pass
+        except Exception as e:
+            print(f"네이버 에러: {e}")
+            pass
 
         # B. 구글 RSS 수집
         google_url = f"https://news.google.com/rss/search?q={kw}+when:1d&hl=ko&gl=KR&ceid=KR:ko"
         try:
-            res = requests.get(google_url, timeout=5)
-            soup = BeautifulSoup(res.text, 'lxml-xml')
+            # [수정] 구글에도 headers를 반드시 넣어야 차단 안 당함
+            res = requests.get(google_url, headers=headers, timeout=5)
+            # [참고] lxml이 설치 안 되어 있을 수 있으니 기본 파서 사용
+            soup = BeautifulSoup(res.text, 'html.parser') 
             for i in soup.find_all('item'):
                 all_news.append({
                     'title': i.title.text,
@@ -64,7 +71,9 @@ def fetch_news_data(inc_list):
                     'time': "RSS",
                     'full_text': i.title.text.lower()
                 })
-        except: pass
+        except Exception as e:
+            print(f"구글 에러: {e}")
+            pass
     
     # 중복 제거 (병합 결과 정리)
     unique = {n['link']: n for n in all_news}.values()
@@ -108,6 +117,8 @@ if final_list:
                 <a href="{n['link']}" target="_blank" class="title">{n['title']}</a>
             </div>
         """, unsafe_allow_html=True)
+else:
+    st.warning("검색 결과가 없습니다. (단어 필터를 확인하거나 잠시 후 다시 시도하세요)")
 
 # [5] 하단 출처 표시
 st.markdown('<div class="source-footer">출처: 네이버 증권 뉴스, Google News RSS</div>', unsafe_allow_html=True)

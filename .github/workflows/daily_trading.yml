@@ -1,0 +1,23 @@
+﻿name: Strategic Market Analysis
+on:
+  schedule:
+    - cron: '10 6 * * 1-5' # 15:10 KST
+    - cron: '40 6 * * 1-5' # 15:40 KST
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - run: python get_pure_leaders.py
+      - name: Commit Results
+        run: |
+          git config --global user.name "Auto-Bot"
+          git config --global user.email "bot@github.com"
+          git add *.csv
+          git commit -m "Update Data: $(date +'%Y-%m-%d %H:%M')" || exit 0
+          git push
